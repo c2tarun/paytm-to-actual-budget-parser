@@ -186,6 +186,9 @@ async function ensureCategories(tags, actualConfig) {
 
     // Create categories one by one
     for (const tag of missingTags) {
+      // Temporarily restore console for interactive prompts
+      restoreConsoleLogs();
+
       console.log(`\n   Creating category for tag: "${tag}"`);
       console.log('   Available category groups:');
       categoryGroups.forEach((group, index) => {
@@ -194,6 +197,9 @@ async function ensureCategories(tags, actualConfig) {
       console.log(`   ${categoryGroups.length + 1}. Create a new group`);
 
       const choice = readline.questionInt(`\n   Select a category group for "${tag}" (enter number): `);
+
+      // Re-suppress console after user input
+      suppressLibraryLogs();
 
       let selectedGroup;
 
@@ -256,6 +262,9 @@ async function importTransactions(transactions, categoryMap, actualConfig, accou
     }
     log(`   Using account: ${selectedAccount.name}`);
   } else {
+    // Temporarily restore console for interactive prompts
+    restoreConsoleLogs();
+
     // Prompt for account selection
     console.log('\n   Available accounts:');
     accounts.forEach((account, index) => {
@@ -263,6 +272,9 @@ async function importTransactions(transactions, categoryMap, actualConfig, accou
     });
 
     const accountChoice = readline.questionInt('\n   Select account for import (enter number): ');
+
+    // Re-suppress console after user input
+    suppressLibraryLogs();
 
     if (accountChoice < 1 || accountChoice > accounts.length) {
       throw new Error('Invalid account selection');

@@ -1,0 +1,22 @@
+{
+  "name": "paytm-uploader-test",
+  "version": "1.0.0",
+  "description": "Test utilities for Paytm statement uploader",
+  "main": "test-upload.js",
+  "scripts": {
+    "test": "echo \"Run: node test-upload.js <file> <url> <token>\"",
+    "build": "cd src && npm install && cd .. && sam build",
+    "deploy": "sam deploy",
+    "logs": "sam logs --stack-name paytm-statement-uploader --tail"
+  },
+  "keywords": [
+    "paytm",
+    "upload",
+    "test"
+  ],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "form-data": "^4.0.0"
+  }
+}

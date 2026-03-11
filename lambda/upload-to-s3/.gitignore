@@ -1,0 +1,30 @@
+# SAM build artifacts
+.aws-sam/
+samconfig.toml
+
+# Node modules
+node_modules/
+src/node_modules/
+package-lock.json
+src/package-lock.json
+
+# Test files
+test-files/*.xlsx
+test-files/*.xls
+
+# Environment variables
+.env
+.env.local
+
+# macOS
+.DS_Store
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Logs
+*.log
+npm-debug.log*

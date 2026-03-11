@@ -1,0 +1,21 @@
+{
+  "name": "paytm-statement-uploader",
+  "version": "1.0.0",
+  "description": "Lambda function to upload Paytm statement files to S3",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [
+    "lambda",
+    "s3",
+    "upload",
+    "paytm"
+  ],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@aws-sdk/client-s3": "^3.525.0",
+    "busboy": "^1.6.0"
+  }
+}

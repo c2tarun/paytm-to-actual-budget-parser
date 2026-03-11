@@ -1,0 +1,79 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: Paytm Statement Upload Service - Lambda with Function URL to upload files to S3
+
+Parameters:
+  UploadSecretToken:
+    Type: String
+    NoEcho: true
+    Description: Secret token required for uploading files
+    MinLength: 20
+
+Globals:
+  Function:
+    Timeout: 30
+    MemorySize: 256
+    Runtime: nodejs20.x
+    Architectures:
+      - arm64
+
+Resources:
+  # S3 Bucket for storing Paytm statements
+  PaytmStatementsBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      Tags:
+        - Key: Purpose
+          Value: PaytmStatementStorage
+
+  # Lambda Function for uploading files
+  UploadFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: paytm-statement-uploader
+      CodeUri: src/
+      Handler: index.handler
+      Description: Receives file uploads via Function URL and stores them in S3
+      Environment:
+        Variables:
+          S3_BUCKET_NAME: !Ref PaytmStatementsBucket
+          UPLOAD_SECRET_TOKEN: !Ref UploadSecretToken
+          S3_INCOMING_PREFIX: incoming/
+      Policies:
+        - S3WritePolicy:
+            BucketName: !Ref PaytmStatementsBucket
+      FunctionUrlConfig:
+        AuthType: NONE
+        Cors:
+          AllowOrigins:
+            - '*'
+          AllowMethods:
+            - POST
+          AllowHeaders:
+            - '*'
+          MaxAge: 300
+
+Outputs:
+  FunctionUrl:
+    Description: URL for the Lambda Function (use this to upload files)
+    Value: !GetAtt UploadFunctionUrl.FunctionUrl
+
+  BucketName:
+    Description: S3 Bucket name for storing statements
+    Value: !Ref PaytmStatementsBucket
+
+  BucketArn:
+    Description: S3 Bucket ARN
+    Value: !GetAtt PaytmStatementsBucket.Arn
+
+  UploadInstructions:
+    Description: How to upload a file
+    Value: !Sub |
+      curl -X POST ${UploadFunctionUrl.FunctionUrl} \
+        -F "file=@/path/to/statement.xlsx" \
+        -F "token=YOUR_SECRET_TOKEN"

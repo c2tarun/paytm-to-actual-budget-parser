@@ -12,8 +12,8 @@ const INCOMING_PREFIX = process.env.S3_INCOMING_PREFIX || 'incoming/';
 
 // Account key to ID mapping (loaded from environment variables)
 const ACCOUNT_MAP = {
-  'tarun_paytm': 'c1d647dd-8997-46a2-a1c2-adc19363cdd7',
-  'ankita_paytm': 'ba3bc2e2-be64-45c0-a73a-2323c20b51a4',
+  'tarun_paytm': 'd6fb4c83-6883-41db-9057-86ee5c66c639',
+  'ankita_paytm': '06ff4c23-38ed-491e-bee2-3564a69337a3',
 };
 
 /**

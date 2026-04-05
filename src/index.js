@@ -116,45 +116,41 @@ async function buildCategoryMap(config) {
 
 /**
  * Main entry point
+ * @param {string} [accountIdOverride] - Account ID override (e.g. from S3 metadata)
  */
-async function main() {
-  try {
-    // Validate configuration
-    if (!config.password || !config.syncID) {
-      console.error('Error: Actual Budget password and syncID must be configured.');
-      console.error('Update config.js or set environment variables ACTUAL_PASSWORD and ACTUAL_SYNC_ID');
-      process.exit(1);
-    }
-
-    // Process all statement files
-    const result = processAllStatements();
-
-    if (!result || result.transactions.length === 0) {
-      console.log('No transactions to process.');
-      return;
-    }
-
-    const { tags, transactions } = result;
-
-    // Ensure all categories exist
-    if (tags.length > 0) {
-      await ensureCategories(tags, config);
-    }
-
-    // Build category mapping and transform transactions
-    const categoryMap = await buildCategoryMap(config);
-    const transformedTransactions = transformTransactions(transactions, categoryMap);
-
-    // Import transactions
-    const accountId = process.env.ACCOUNT_ID || config.accountId;
-    await importToActualBudget(transformedTransactions, config, accountId);
-
-    console.log('All files processed successfully!');
-  } catch (error) {
-    console.error('\nError:', error.message);
-    console.error(error.stack);
-    process.exit(1);
+async function main(accountIdOverride) {
+  // Validate configuration
+  if (!config.password || !config.syncID) {
+    throw new Error(
+      'Actual Budget password and syncID must be configured. ' +
+      'Set environment variables ACTUAL_PASSWORD and ACTUAL_SYNC_ID'
+    );
   }
+
+  // Process all statement files
+  const result = processAllStatements();
+
+  if (!result || result.transactions.length === 0) {
+    console.log('No transactions to process.');
+    return;
+  }
+
+  const { tags, transactions } = result;
+
+  // Ensure all categories exist
+  if (tags.length > 0) {
+    await ensureCategories(tags, config);
+  }
+
+  // Build category mapping and transform transactions
+  const categoryMap = await buildCategoryMap(config);
+  const transformedTransactions = transformTransactions(transactions, categoryMap);
+
+  // Import transactions
+  const accountId = accountIdOverride || process.env.ACCOUNT_ID || config.accountId;
+  await importToActualBudget(transformedTransactions, config, accountId);
+
+  console.log('All files processed successfully!');
 }
 
 // Run if called directly

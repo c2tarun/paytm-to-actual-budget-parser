@@ -1,5 +1,4 @@
 const api = require('@actual-app/api');
-const readline = require('readline-sync');
 
 /**
  * Initializes and connects to Actual Budget API
@@ -14,34 +13,6 @@ async function initializeAPI(config) {
   });
 
   await api.downloadBudget(config.syncID);
-}
-
-/**
- * Displays category groups and prompts user to select one
- * @param {Array} categoryGroups - Available category groups
- * @param {string} tagName - Tag name for which we're selecting a group
- * @returns {Object} - Selected category group
- */
-function selectCategoryGroup(categoryGroups, tagName) {
-  console.log(`\n   Creating category for tag: "${tagName}"`);
-  console.log('   Available category groups:');
-
-  categoryGroups.forEach((group, index) => {
-    console.log(`   ${index + 1}. ${group.name}`);
-  });
-  console.log(`   ${categoryGroups.length + 1}. Create a new group`);
-
-  const choice = readline.questionInt(`\n   Select a category group for "${tagName}" (enter number): `);
-
-  if (choice < 1 || choice > categoryGroups.length + 1) {
-    throw new Error('Invalid selection');
-  }
-
-  return {
-    choice,
-    isNewGroup: choice === categoryGroups.length + 1,
-    selectedGroup: choice <= categoryGroups.length ? categoryGroups[choice - 1] : null
-  };
 }
 
 /**
@@ -60,8 +31,9 @@ async function createNewCategoryGroup(groupName) {
 }
 
 /**
- * Ensures all tags have corresponding categories in Actual Budget
- * Creates missing categories with user-selected groups
+ * Ensures all tags have corresponding categories in Actual Budget.
+ * Missing categories are auto-assigned to the default category group
+ * (configured via DEFAULT_CATEGORY_GROUP env var, defaults to "Usual Expenses").
  * @param {Array<string>} tags - Unique tags from statements
  * @param {Object} config - Configuration object
  * @returns {Promise<void>}
@@ -88,25 +60,21 @@ async function ensureCategories(tags, config) {
 
   console.log(`\n   Need to create ${missingTags.length} new categories: ${missingTags.join(', ')}`);
 
-  let categoryGroups = await api.getCategoryGroups();
+  const defaultGroupName = config.defaultCategoryGroup;
+  const categoryGroups = await api.getCategoryGroups();
 
-  if (categoryGroups.length === 0) {
-    throw new Error('No category groups found in Actual Budget');
+  // Find or create the default category group
+  let groupToUse = categoryGroups.find(
+    g => g.name.toLowerCase() === defaultGroupName.toLowerCase()
+  );
+
+  if (!groupToUse) {
+    groupToUse = await createNewCategoryGroup(defaultGroupName);
+  } else {
+    console.log(`   Using existing category group: "${groupToUse.name}"`);
   }
 
   for (const tag of missingTags) {
-    const { isNewGroup, selectedGroup } = selectCategoryGroup(categoryGroups, tag);
-
-    let groupToUse;
-
-    if (isNewGroup) {
-      const groupName = readline.question('   Enter new group name: ');
-      groupToUse = await createNewCategoryGroup(groupName);
-      categoryGroups = await api.getCategoryGroups(); // Refresh list
-    } else {
-      groupToUse = selectedGroup;
-    }
-
     await api.createCategory({
       name: tag,
       group_id: groupToUse.id,
@@ -123,31 +91,23 @@ async function ensureCategories(tags, config) {
 /**
  * Selects an account for import
  * @param {Array} accounts - Available accounts
- * @param {string|undefined} accountId - Optional pre-configured account ID
+ * @param {string} accountId - Pre-configured account ID (required)
  * @returns {Object} - Selected account
  */
 function selectAccount(accounts, accountId) {
-  if (accountId) {
-    const account = accounts.find(acc => acc.id === accountId);
-    if (!account) {
-      throw new Error(`Account with ID ${accountId} not found`);
-    }
-    console.log(`   Using account: ${account.name}`);
-    return account;
+  if (!accountId) {
+    throw new Error(
+      'Account ID is required. Set ACCOUNT_ID env var or pass account-id via S3 metadata.'
+    );
   }
 
-  console.log('\n   Available accounts:');
-  accounts.forEach((account, index) => {
-    console.log(`   ${index + 1}. ${account.name} (${account.type || 'N/A'})`);
-  });
-
-  const accountChoice = readline.questionInt('\n   Select account for import (enter number): ');
-
-  if (accountChoice < 1 || accountChoice > accounts.length) {
-    throw new Error('Invalid account selection');
+  const account = accounts.find(acc => acc.id === accountId);
+  if (!account) {
+    const available = accounts.map(a => `  ${a.id} (${a.name})`).join('\n');
+    throw new Error(
+      `Account with ID ${accountId} not found. Available accounts:\n${available}`
+    );
   }
-
-  const account = accounts[accountChoice - 1];
   console.log(`   Using account: ${account.name}`);
   return account;
 }
@@ -156,7 +116,7 @@ function selectAccount(accounts, accountId) {
  * Imports transactions to Actual Budget
  * @param {Array} transactions - Transformed transactions ready for import
  * @param {Object} config - Configuration object
- * @param {string|undefined} accountId - Optional account ID
+ * @param {string} accountId - Account ID
  * @returns {Promise<void>}
  */
 async function importToActualBudget(transactions, config, accountId) {

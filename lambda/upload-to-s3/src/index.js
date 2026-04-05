@@ -10,6 +10,12 @@ const BUCKET_NAME = process.env.S3_BUCKET_NAME;
 const SECRET_TOKEN = process.env.UPLOAD_SECRET_TOKEN;
 const INCOMING_PREFIX = process.env.S3_INCOMING_PREFIX || 'incoming/';
 
+// Account key to ID mapping (loaded from environment variables)
+const ACCOUNT_MAP = {
+  'tarun_paytm': 'c1d647dd-8997-46a2-a1c2-adc19363cdd7',
+  'ankita_paytm': 'ba3bc2e2-be64-45c0-a73a-2323c20b51a4',
+};
+
 /**
  * Parse multipart/form-data from Lambda Function URL request
  * @param {Object} event - Lambda event object
@@ -122,6 +128,29 @@ function validateFile(filename, mimeType) {
 }
 
 /**
+ * Validate account key and return account ID
+ * @param {string} accountKey - Short account key from upload
+ * @returns {Object} - { valid: boolean, accountId: string, error: string }
+ */
+function validateAccount(accountKey) {
+  if (!accountKey) {
+    return { valid: true, accountId: null }; // Optional field
+  }
+
+  const accountId = ACCOUNT_MAP[accountKey.toLowerCase()];
+
+  if (!accountId) {
+    const validKeys = Object.keys(ACCOUNT_MAP).filter(k => ACCOUNT_MAP[k]);
+    return {
+      valid: false,
+      error: `Invalid account key "${accountKey}". Valid options: ${validKeys.join(', ')}`
+    };
+  }
+
+  return { valid: true, accountId };
+}
+
+/**
  * Sanitize filename to prevent path traversal
  * @param {string} filename - Original filename
  * @returns {string} - Sanitized filename
@@ -137,9 +166,11 @@ function sanitizeFilename(filename) {
  * Upload file to S3
  * @param {Buffer} fileBuffer - File data
  * @param {string} originalFilename - Original filename
- * @returns {Promise<string>} - S3 key of uploaded file
+ * @param {string} accountKey - Short account key (e.g., 'paytm')
+ * @param {string} accountId - Full account ID UUID
+ * @returns {Promise<Object>} - { s3Key, accountId, accountKey }
  */
-async function uploadToS3(fileBuffer, originalFilename) {
+async function uploadToS3(fileBuffer, originalFilename, accountKey, accountId) {
   const sanitized = sanitizeFilename(originalFilename);
   const timestamp = Date.now();
   const baseFilename = sanitized.slice(0, sanitized.lastIndexOf('.'));
@@ -148,19 +179,27 @@ async function uploadToS3(fileBuffer, originalFilename) {
   // Add timestamp to prevent collisions
   const s3Key = `${INCOMING_PREFIX}${baseFilename}_${timestamp}${ext}`;
 
+  const metadata = {
+    'original-filename': originalFilename,
+    'upload-timestamp': new Date().toISOString()
+  };
+
+  // Add account metadata if provided
+  if (accountId) {
+    metadata['account-id'] = accountId;
+    metadata['account-key'] = accountKey;
+  }
+
   const command = new PutObjectCommand({
     Bucket: BUCKET_NAME,
     Key: s3Key,
     Body: fileBuffer,
     ContentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-    Metadata: {
-      'original-filename': originalFilename,
-      'upload-timestamp': new Date().toISOString()
-    }
+    Metadata: metadata
   });
 
   await s3Client.send(command);
-  return s3Key;
+  return { s3Key, accountId, accountKey };
 }
 
 /**
@@ -196,6 +235,20 @@ exports.handler = async (event) => {
         body: JSON.stringify({
           success: false,
           error: 'Invalid or missing token'
+        })
+      };
+    }
+
+    // Validate account (optional field)
+    const accountValidation = validateAccount(fields.account);
+    if (!accountValidation.valid) {
+      console.warn(`Invalid account key: ${fields.account}`);
+      return {
+        statusCode: 400,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          success: false,
+          error: accountValidation.error
         })
       };
     }
@@ -240,10 +293,15 @@ exports.handler = async (event) => {
       };
     }
 
-    // Upload to S3
-    const s3Key = await uploadToS3(file.buffer, file.filename);
+    // Upload to S3 with account metadata
+    const uploadResult = await uploadToS3(
+      file.buffer,
+      file.filename,
+      fields.account,
+      accountValidation.accountId
+    );
 
-    console.log(`Successfully uploaded file: ${s3Key}`);
+    console.log(`Successfully uploaded file: ${uploadResult.s3Key}`);
 
     return {
       statusCode: 200,
@@ -252,7 +310,8 @@ exports.handler = async (event) => {
         success: true,
         message: 'File uploaded successfully',
         filename: file.filename,
-        s3Key: s3Key,
+        s3Key: uploadResult.s3Key,
+        account: uploadResult.accountKey || 'none',
         size: file.buffer.length,
         bucket: BUCKET_NAME
       })

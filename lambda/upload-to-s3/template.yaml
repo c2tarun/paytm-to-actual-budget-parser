@@ -7,7 +7,6 @@ Parameters:
     Type: String
     NoEcho: true
     Description: Secret token required for uploading files
-    MinLength: 20
 
 Globals:
   Function:
@@ -76,4 +75,5 @@ Outputs:
     Value: !Sub |
       curl -X POST ${UploadFunctionUrl.FunctionUrl} \
         -F "file=@/path/to/statement.xlsx" \
-        -F "token=YOUR_SECRET_TOKEN"
+        -F "token=YOUR_SECRET_TOKEN" \
+        -F "account=paytm"

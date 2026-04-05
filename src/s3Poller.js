@@ -9,6 +9,7 @@ const {
 const fs = require('fs');
 const path = require('path');
 const { pipeline } = require('stream/promises');
+const log = require('./logger');
 
 /**
  * Creates an S3 client configured from environment/credentials
@@ -98,7 +99,7 @@ async function moveToProcessed(client, bucket, sourceKey, processedPrefix) {
     Key: sourceKey
   }));
 
-  console.log(`   ✓ Moved ${sourceKey} → ${destKey}`);
+  log.info('s3_file_moved', { from: sourceKey, to: destKey });
 }
 
 module.exports = {

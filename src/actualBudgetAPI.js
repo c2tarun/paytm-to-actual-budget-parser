@@ -1,4 +1,5 @@
 const api = require('@actual-app/api');
+const log = require('./logger');
 
 /**
  * Initializes and connects to Actual Budget API
@@ -21,12 +22,11 @@ async function initializeAPI(config) {
  * @returns {Promise<Object>} - Created category group
  */
 async function createNewCategoryGroup(groupName) {
-  console.log(`   Creating new category group: ${groupName}`);
   const group = await api.createCategoryGroup({
     name: groupName,
     is_income: false
   });
-  console.log(`   ✓ Created group: ${groupName}`);
+  log.info('category_group_created', { group: groupName });
   return group;
 }
 
@@ -39,26 +39,20 @@ async function createNewCategoryGroup(groupName) {
  * @returns {Promise<void>}
  */
 async function ensureCategories(tags, config) {
-  console.log('\n4. Syncing categories with Actual Budget...');
-
   await initializeAPI(config);
 
   const categories = await api.getCategories();
   const categoryNames = categories.map(c => c.name.toLowerCase());
 
-  console.log(`   Found ${categories.length} existing categories`);
-  console.log(`   Found ${tags.length} unique tags in statements`);
-
   const missingTags = tags.filter(tag => !categoryNames.includes(tag.toLowerCase()));
 
   if (missingTags.length === 0) {
-    console.log('   ✓ All tags already have matching categories');
+    log.debug('categories_in_sync', { existing: categories.length, tags: tags.length });
     await api.shutdown();
-    console.log('   ✓ Category sync complete\n');
     return;
   }
 
-  console.log(`\n   Need to create ${missingTags.length} new categories: ${missingTags.join(', ')}`);
+  log.info('categories_missing', { count: missingTags.length, tags: missingTags });
 
   const defaultGroupName = config.defaultCategoryGroup;
   const categoryGroups = await api.getCategoryGroups();
@@ -70,8 +64,6 @@ async function ensureCategories(tags, config) {
 
   if (!groupToUse) {
     groupToUse = await createNewCategoryGroup(defaultGroupName);
-  } else {
-    console.log(`   Using existing category group: "${groupToUse.name}"`);
   }
 
   for (const tag of missingTags) {
@@ -81,11 +73,10 @@ async function ensureCategories(tags, config) {
       is_income: false
     });
 
-    console.log(`   ✓ Created category "${tag}" in group "${groupToUse.name}"`);
+    log.info('category_created', { category: tag, group: groupToUse.name });
   }
 
   await api.shutdown();
-  console.log('   ✓ Category sync complete\n');
 }
 
 /**
@@ -108,7 +99,6 @@ function selectAccount(accounts, accountId) {
       `Account with ID ${accountId} not found. Available accounts:\n${available}`
     );
   }
-  console.log(`   Using account: ${account.name}`);
   return account;
 }
 
@@ -120,20 +110,25 @@ function selectAccount(accounts, accountId) {
  * @returns {Promise<void>}
  */
 async function importToActualBudget(transactions, config, accountId) {
-  console.log('\n5. Importing transactions to Actual Budget...');
-
   await initializeAPI(config);
 
   const accounts = await api.getAccounts();
   const selectedAccount = selectAccount(accounts, accountId);
 
-  console.log(`\n   Importing ${transactions.length} transactions...`);
+  log.info('import_start', {
+    account: selectedAccount.name,
+    accountId: selectedAccount.id,
+    transactionCount: transactions.length
+  });
 
   await api.importTransactions(selectedAccount.id, transactions);
-  console.log(`   ✓ Imported ${transactions.length} transactions`);
+
+  log.info('import_complete', {
+    account: selectedAccount.name,
+    transactionCount: transactions.length
+  });
 
   await api.shutdown();
-  console.log('   ✓ Import complete\n');
 }
 
 module.exports = {

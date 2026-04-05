@@ -1,6 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const config = require('./config');
+const log = require('./logger');
 const { createS3Client, listIncomingFiles, downloadFile, moveToProcessed } = require('./s3Poller');
 const { main } = require('./index');
 
@@ -15,7 +16,7 @@ async function pollCycle(s3Client) {
   pollInProgress = true;
 
   try {
-    console.log(`\n[${new Date().toISOString()}] Polling S3 for new files...`);
+    log.info('poll_cycle_start', { bucket: config.s3BucketName, prefix: config.s3IncomingPrefix });
 
     const keys = await listIncomingFiles(
       s3Client,
@@ -24,20 +25,19 @@ async function pollCycle(s3Client) {
     );
 
     if (keys.length === 0) {
-      console.log('   No new files found.');
+      log.debug('no_new_files');
       return;
     }
 
-    console.log(`   Found ${keys.length} file(s) to process.`);
+    log.info('files_found', { count: keys.length, keys });
 
     // Process files sequentially (Actual Budget API can't handle concurrent access)
     for (const key of keys) {
       if (shuttingDown) {
-        console.log('   Shutdown requested, stopping after current file.');
+        log.warn('shutdown_requested_mid_cycle', { remaining: keys.indexOf(key) });
         break;
       }
 
-      console.log(`\n--- Processing: ${key} ---`);
       let localPath = null;
 
       try {
@@ -50,10 +50,7 @@ async function pollCycle(s3Client) {
         );
         localPath = downloadedPath;
 
-        console.log(`   Downloaded: ${fileName}`);
-        if (accountId) {
-          console.log(`   Account ID from metadata: ${accountId}`);
-        }
+        log.info('file_downloaded', { key, fileName, accountId });
 
         // Run the importer
         await main(accountId);
@@ -66,10 +63,13 @@ async function pollCycle(s3Client) {
           config.s3ProcessedPrefix
         );
 
-        console.log(`   ✓ Successfully processed: ${fileName}`);
+        log.info('file_processed', { key, fileName, accountId });
       } catch (error) {
-        console.error(`   ✗ Error processing ${key}: ${error.message}`);
-        console.error(error.stack);
+        log.error('file_processing_failed', {
+          key,
+          error: error.message,
+          stack: error.stack
+        });
         // Leave file in incoming/ for retry on next cycle
       } finally {
         // Clean up local file
@@ -79,8 +79,7 @@ async function pollCycle(s3Client) {
       }
     }
   } catch (error) {
-    console.error(`   ✗ Poll cycle error: ${error.message}`);
-    console.error(error.stack);
+    log.error('poll_cycle_error', { error: error.message, stack: error.stack });
   } finally {
     pollInProgress = false;
   }
@@ -111,13 +110,13 @@ async function start() {
   const s3Client = createS3Client(config.s3Region);
   const intervalMs = config.pollIntervalMs;
 
-  console.log('=== Paytm Statement Poller ===');
-  console.log(`   S3 Bucket: ${config.s3BucketName}`);
-  console.log(`   S3 Prefix: ${config.s3IncomingPrefix}`);
-  console.log(`   Actual Budget: ${config.serverURL}`);
-  console.log(`   Poll interval: ${intervalMs / 1000}s`);
-  console.log(`   Default category group: ${config.defaultCategoryGroup}`);
-  console.log('');
+  log.info('poller_started', {
+    bucket: config.s3BucketName,
+    prefix: config.s3IncomingPrefix,
+    actualBudgetUrl: config.serverURL,
+    pollIntervalSec: intervalMs / 1000,
+    defaultCategoryGroup: config.defaultCategoryGroup
+  });
 
   // Run first cycle immediately
   await pollCycle(s3Client);
@@ -127,19 +126,19 @@ async function start() {
 
   // Graceful shutdown
   const shutdown = async (signal) => {
-    console.log(`\n[${new Date().toISOString()}] Received ${signal}, shutting down...`);
+    log.info('shutdown_signal', { signal });
     shuttingDown = true;
     clearInterval(intervalId);
 
     // Wait for in-progress cycle to finish
     if (pollInProgress) {
-      console.log('   Waiting for current poll cycle to complete...');
+      log.info('waiting_for_cycle');
       while (pollInProgress) {
         await new Promise(resolve => setTimeout(resolve, 500));
       }
     }
 
-    console.log('   Shutdown complete.');
+    log.info('shutdown_complete');
     process.exit(0);
   };
 
@@ -148,6 +147,6 @@ async function start() {
 }
 
 start().catch(err => {
-  console.error('Fatal error:', err);
+  log.error('fatal_error', { error: err.message, stack: err.stack });
   process.exit(1);
 });

@@ -1,3 +1,6 @@
+// Polyfill browser globals required by @actual-app/api
+globalThis.navigator = { platform: 'linux', userAgent: '' };
+
 const fs = require('fs');
 const path = require('path');
 const config = require('./config');

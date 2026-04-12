@@ -37,6 +37,15 @@ module.exports = {
   // Category defaults
   defaultCategoryGroup: process.env.DEFAULT_CATEGORY_GROUP || 'Usual Expenses',
 
+  // Firefly III configuration (optional - enabled when URL and token are set)
+  fireflyURL: process.env.FIREFLY_URL || null,
+  fireflyToken: process.env.FIREFLY_TOKEN || null,
+  fireflyAccountId: process.env.FIREFLY_ACCOUNT_ID || null,
+  fireflyAccountMap: process.env.FIREFLY_ACCOUNT_MAP
+    ? JSON.parse(process.env.FIREFLY_ACCOUNT_MAP)
+    : null,
+  fireflyEnabled: !!(process.env.FIREFLY_URL && process.env.FIREFLY_TOKEN),
+
   // Excel file configuration
   sheetName: 'Passbook Payment History',
 

@@ -13,6 +13,7 @@
 const fs = require('fs');
 const path = require('path');
 const config = require('./config');
+const log = require('./logger');
 const { ensureDirectoryExists, createCategoryMap } = require('./utils');
 const { excelToCSV, processCSV } = require('./excelProcessor');
 const { ensureCategories, importToActualBudget, api } = require('./actualBudgetAPI');
@@ -116,14 +117,17 @@ async function buildCategoryMap(config) {
 
 /**
  * Main entry point
- * @param {string} [accountIdOverride] - Account ID override (e.g. from S3 metadata)
+ * @param {string} [accountIdOverride] - Actual Budget account ID (e.g. from S3 metadata)
+ * @param {string} [accountKeyOverride] - Account key (e.g. "tarun_paytm" from S3 metadata)
  */
-async function main(accountIdOverride) {
-  // Validate configuration
-  if (!config.password || !config.syncID) {
+async function main(accountIdOverride, accountKeyOverride) {
+  const actualConfigured = config.password && config.syncID;
+  const fireflyConfigured = config.fireflyEnabled;
+
+  if (!actualConfigured && !fireflyConfigured) {
     throw new Error(
-      'Actual Budget password and syncID must be configured. ' +
-      'Set environment variables ACTUAL_PASSWORD and ACTUAL_SYNC_ID'
+      'At least one destination must be configured. ' +
+      'Set ACTUAL_PASSWORD + ACTUAL_SYNC_ID and/or FIREFLY_URL + FIREFLY_TOKEN'
     );
   }
 
@@ -136,21 +140,53 @@ async function main(accountIdOverride) {
   }
 
   const { tags, transactions } = result;
+  const results = { actualBudget: null, firefly: null };
 
-  // Ensure all categories exist
-  if (tags.length > 0) {
-    await ensureCategories(tags, config);
+  // --- Actual Budget import ---
+  if (actualConfigured) {
+    try {
+      if (tags.length > 0) {
+        await ensureCategories(tags, config);
+      }
+      const categoryMap = await buildCategoryMap(config);
+      const transformedTransactions = transformTransactions(transactions, categoryMap);
+      const accountId = accountIdOverride || process.env.ACCOUNT_ID || config.accountId;
+      await importToActualBudget(transformedTransactions, config, accountId);
+      results.actualBudget = { success: true, count: transformedTransactions.length };
+    } catch (error) {
+      results.actualBudget = { success: false, error: error.message };
+      log.error('actual_budget_import_failed', { error: error.message, stack: error.stack });
+    }
   }
 
-  // Build category mapping and transform transactions
-  const categoryMap = await buildCategoryMap(config);
-  const transformedTransactions = transformTransactions(transactions, categoryMap);
+  // --- Firefly III import ---
+  if (fireflyConfigured) {
+    try {
+      const { importToFirefly } = require('./fireflyAPI');
+      // Resolve Firefly account ID: map lookup (using account key e.g. "tarun_paytm") → fallback to single ID
+      const fireflyAccountId = (config.fireflyAccountMap && accountKeyOverride)
+        ? config.fireflyAccountMap[accountKeyOverride]
+        : config.fireflyAccountId;
+      const summary = await importToFirefly(transactions, config, fireflyAccountId);
+      results.firefly = { success: true, ...summary };
+    } catch (error) {
+      results.firefly = { success: false, error: error.message };
+      log.error('firefly_import_failed', { error: error.message, stack: error.stack });
+    }
+  }
 
-  // Import transactions
-  const accountId = accountIdOverride || process.env.ACCOUNT_ID || config.accountId;
-  await importToActualBudget(transformedTransactions, config, accountId);
+  // Fail only if ALL enabled destinations failed
+  const actualFailed = actualConfigured && results.actualBudget && !results.actualBudget.success;
+  const fireflyFailed = fireflyConfigured && results.firefly && !results.firefly.success;
 
-  console.log('All files processed successfully!');
+  if (actualFailed && fireflyFailed) {
+    throw new Error('All import destinations failed');
+  }
+  if (actualFailed || fireflyFailed) {
+    log.warn('partial_import_failure', results);
+  }
+
+  log.info('import_complete', results);
 }
 
 // Run if called directly

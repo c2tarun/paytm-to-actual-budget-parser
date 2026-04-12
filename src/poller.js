@@ -45,7 +45,7 @@ async function pollCycle(s3Client) {
 
       try {
         // Download file from S3
-        const { localPath: downloadedPath, fileName, accountId } = await downloadFile(
+        const { localPath: downloadedPath, fileName, accountId, accountKey } = await downloadFile(
           s3Client,
           config.s3BucketName,
           key,
@@ -53,10 +53,10 @@ async function pollCycle(s3Client) {
         );
         localPath = downloadedPath;
 
-        log.info('file_downloaded', { key, fileName, accountId });
+        log.info('file_downloaded', { key, fileName, accountId, accountKey });
 
         // Run the importer
-        await main(accountId);
+        await main(accountId, accountKey);
 
         // Move to processed in S3
         await moveToProcessed(
@@ -96,11 +96,13 @@ async function start() {
   if (!config.s3BucketName) {
     throw new Error('S3_BUCKET_NAME environment variable is required');
   }
-  if (!config.password) {
-    throw new Error('ACTUAL_PASSWORD environment variable is required');
-  }
-  if (!config.syncID) {
-    throw new Error('ACTUAL_SYNC_ID environment variable is required');
+  const actualConfigured = config.password && config.syncID;
+  const fireflyConfigured = config.fireflyEnabled;
+  if (!actualConfigured && !fireflyConfigured) {
+    throw new Error(
+      'At least one destination must be configured. ' +
+      'Set ACTUAL_PASSWORD + ACTUAL_SYNC_ID and/or FIREFLY_URL + FIREFLY_TOKEN'
+    );
   }
 
   // Ensure local directories exist

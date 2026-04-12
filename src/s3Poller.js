@@ -61,6 +61,7 @@ async function downloadFile(client, bucket, key, destDir) {
   // S3 lowercases all user-defined metadata keys
   const metadata = headResponse.Metadata || {};
   const accountId = metadata['account-id'] || null;
+  const accountKey = metadata['account-key'] || null;
 
   // Download file
   const getCommand = new GetObjectCommand({ Bucket: bucket, Key: key });
@@ -71,7 +72,7 @@ async function downloadFile(client, bucket, key, destDir) {
 
   await pipeline(getResponse.Body, fs.createWriteStream(localPath));
 
-  return { localPath, fileName, accountId };
+  return { localPath, fileName, accountId, accountKey };
 }
 
 /**

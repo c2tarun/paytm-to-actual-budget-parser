@@ -26,19 +26,16 @@ const { transformTransactions } = require('./transactionMapper');
  * @returns {Object} - Processed transactions and tags
  */
 function processStatementFile(filePath, fileName) {
-  console.log(`Processing: ${fileName}`);
+  log.info('processing_file', { fileName });
 
-  console.log('  2. Converting to CSV...');
   const csvContent = excelToCSV(filePath);
-
-  console.log('  3. Cleaning tags...');
   const { csv, tags, records } = processCSV(csvContent);
 
   // Save processed CSV
   const baseName = path.basename(fileName, '.xlsx');
   const outputPath = path.join(config.processedDir, `${baseName}_processed.csv`);
   fs.writeFileSync(outputPath, csv, 'utf8');
-  console.log(`  ✓ Saved to: ${outputPath}\n`);
+  log.info('file_converted', { fileName, tags: tags.length, transactions: records.length, outputPath });
 
   return { tags, records };
 }
@@ -54,22 +51,21 @@ function processAllStatements() {
   // Ensure directories exist
   if (!fs.existsSync(statementsDir)) {
     fs.mkdirSync(statementsDir);
-    console.log('Created statements folder. Please add your .xlsx files there.');
+    log.warn('statements_dir_created', { dir: statementsDir });
     return null;
   }
 
   ensureDirectoryExists(outputDir);
 
   // Scan for Excel files
-  console.log('1. Scanning for .xlsx files in statements folder...');
   const files = fs.readdirSync(statementsDir).filter(f => f.endsWith('.xlsx'));
 
   if (files.length === 0) {
-    console.log('No .xlsx files found in statements folder.');
+    log.info('no_files_found', { dir: statementsDir });
     return null;
   }
 
-  console.log(`Found ${files.length} file(s): ${files.join(', ')}\n`);
+  log.info('files_found', { count: files.length, files });
 
   // Process each file
   const allTags = new Set();
@@ -83,7 +79,7 @@ function processAllStatements() {
       tags.forEach(tag => allTags.add(tag));
       allTransactions.push(...records);
     } catch (error) {
-      console.error(`  ✗ Error processing ${file}: ${error.message}`);
+      log.error('file_processing_error', { file, error: error.message });
     }
   });
 
@@ -121,8 +117,15 @@ async function buildCategoryMap(config) {
  * @param {string} [accountKeyOverride] - Account key (e.g. "tarun_paytm" from S3 metadata)
  */
 async function main(accountIdOverride, accountKeyOverride) {
-  const actualConfigured = config.password && config.syncID;
+  const actualConfigured = !!(config.password && config.syncID);
   const fireflyConfigured = config.fireflyEnabled;
+
+  log.info('main_start', {
+    actualConfigured,
+    fireflyConfigured,
+    accountIdOverride: accountIdOverride || null,
+    accountKeyOverride: accountKeyOverride || null,
+  });
 
   if (!actualConfigured && !fireflyConfigured) {
     throw new Error(
@@ -135,11 +138,12 @@ async function main(accountIdOverride, accountKeyOverride) {
   const result = processAllStatements();
 
   if (!result || result.transactions.length === 0) {
-    console.log('No transactions to process.');
+    log.info('no_transactions');
     return;
   }
 
   const { tags, transactions } = result;
+  log.info('statements_processed', { transactionCount: transactions.length, tagCount: tags.length });
   const results = { actualBudget: null, firefly: null };
 
   // --- Actual Budget import ---
@@ -167,6 +171,11 @@ async function main(accountIdOverride, accountKeyOverride) {
       const fireflyAccountId = (config.fireflyAccountMap && accountKeyOverride)
         ? config.fireflyAccountMap[accountKeyOverride]
         : config.fireflyAccountId;
+      log.info('firefly_account_resolved', {
+        accountKey: accountKeyOverride,
+        fireflyAccountId,
+        source: (config.fireflyAccountMap && accountKeyOverride) ? 'map' : 'env',
+      });
       const summary = await importToFirefly(transactions, config, fireflyAccountId);
       results.firefly = { success: true, ...summary };
     } catch (error) {
@@ -192,9 +201,9 @@ async function main(accountIdOverride, accountKeyOverride) {
 // Run if called directly
 if (require.main === module) {
   main()
-    .then(() => console.log('Done'))
+    .then(() => log.info('done'))
     .catch(err => {
-      console.error('Fatal error:', err);
+      log.error('fatal_error', { error: err.message, stack: err.stack });
       process.exit(1);
     });
 }

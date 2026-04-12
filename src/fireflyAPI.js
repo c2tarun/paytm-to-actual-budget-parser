@@ -65,8 +65,20 @@ async function importToFirefly(transactions, config, fireflyAccountId) {
     accountId: fireflyAccountId,
   });
 
-  for (const txn of transactions) {
+  for (let i = 0; i < transactions.length; i++) {
+    const txn = transactions[i];
     const fireflyTxn = transformToFirefly(txn, config, fireflyAccountId);
+
+    log.debug('firefly_posting_transaction', {
+      index: i + 1,
+      total: transactions.length,
+      type: fireflyTxn.type,
+      amount: fireflyTxn.amount,
+      description: fireflyTxn.description,
+      date: fireflyTxn.date,
+      external_id: fireflyTxn.external_id,
+      category_name: fireflyTxn.category_name || null,
+    });
 
     try {
       const response = await fetch(`${baseURL}/api/v1/transactions`, {
@@ -85,10 +97,11 @@ async function importToFirefly(transactions, config, fireflyAccountId) {
 
       if (response.ok) {
         summary.imported++;
+        log.debug('firefly_transaction_created', { index: i + 1, external_id: fireflyTxn.external_id });
       } else if (response.status === 422) {
         // Duplicate transaction — safe to skip
         summary.duplicates++;
-        log.debug('firefly_duplicate_skipped', { external_id: fireflyTxn.external_id });
+        log.debug('firefly_duplicate_skipped', { index: i + 1, external_id: fireflyTxn.external_id });
       } else {
         summary.errors++;
         const body = await response.text();

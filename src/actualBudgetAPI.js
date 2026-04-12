@@ -121,11 +121,19 @@ async function importToActualBudget(transactions, config, accountId) {
     transactionCount: transactions.length
   });
 
-  await api.importTransactions(selectedAccount.id, transactions);
+  log.debug('actual_budget_calling_import_api', {
+    accountId: selectedAccount.id,
+    accountName: selectedAccount.name,
+    transactionCount: transactions.length,
+    sampleTransaction: transactions.length > 0 ? transactions[0] : null,
+  });
+
+  const importResult = await api.importTransactions(selectedAccount.id, transactions);
 
   log.info('import_complete', {
     account: selectedAccount.name,
-    transactionCount: transactions.length
+    transactionCount: transactions.length,
+    result: importResult,
   });
 
   await api.shutdown();

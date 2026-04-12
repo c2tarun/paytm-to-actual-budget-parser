@@ -53,10 +53,12 @@ async function pollCycle(s3Client) {
         );
         localPath = downloadedPath;
 
-        log.info('file_downloaded', { key, fileName, accountId, accountKey });
+        log.info('file_downloaded', { key, fileName, accountId, accountKey, localPath });
 
+        log.debug('calling_main', { accountId, accountKey });
         // Run the importer
         await main(accountId, accountKey);
+        log.debug('main_returned', { key, fileName });
 
         // Move to processed in S3
         await moveToProcessed(
@@ -119,6 +121,10 @@ async function start() {
     bucket: config.s3BucketName,
     prefix: config.s3IncomingPrefix,
     actualBudgetUrl: config.serverURL,
+    fireflyUrl: config.fireflyURL,
+    fireflyEnabled: config.fireflyEnabled,
+    fireflyAccountMap: config.fireflyAccountMap,
+    actualConfigured: !!(config.password && config.syncID),
     pollIntervalSec: intervalMs / 1000,
     defaultCategoryGroup: config.defaultCategoryGroup
   });

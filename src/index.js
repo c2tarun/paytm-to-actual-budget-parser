@@ -26,16 +26,21 @@ const { transformTransactions } = require('./transactionMapper');
  * @returns {Object} - Processed transactions and tags
  */
 function processStatementFile(filePath, fileName) {
-  log.info('processing_file', { fileName });
+  log.info('processing_file', { fileName, filePath });
 
+  log.debug('excel_to_csv_start', { fileName });
   const csvContent = excelToCSV(filePath);
+  log.debug('excel_to_csv_done', { fileName, csvLength: csvContent.length });
+
+  log.debug('process_csv_start', { fileName });
   const { csv, tags, records } = processCSV(csvContent);
+  log.debug('process_csv_done', { fileName, tags, transactionCount: records.length });
 
   // Save processed CSV
   const baseName = path.basename(fileName, '.xlsx');
   const outputPath = path.join(config.processedDir, `${baseName}_processed.csv`);
   fs.writeFileSync(outputPath, csv, 'utf8');
-  log.info('file_converted', { fileName, tags: tags.length, transactions: records.length, outputPath });
+  log.info('file_converted', { fileName, tagCount: tags.length, transactionCount: records.length, outputPath });
 
   return { tags, records };
 }
@@ -148,23 +153,32 @@ async function main(accountIdOverride, accountKeyOverride) {
 
   // --- Actual Budget import ---
   if (actualConfigured) {
+    log.info('actual_budget_start', { transactionCount: transactions.length });
     try {
       if (tags.length > 0) {
+        log.debug('actual_budget_ensure_categories', { tagCount: tags.length, tags });
         await ensureCategories(tags, config);
       }
+      log.debug('actual_budget_building_category_map');
       const categoryMap = await buildCategoryMap(config);
+      log.debug('actual_budget_category_map_built', { categoryCount: Object.keys(categoryMap).length });
       const transformedTransactions = transformTransactions(transactions, categoryMap);
       const accountId = accountIdOverride || process.env.ACCOUNT_ID || config.accountId;
+      log.info('actual_budget_importing', { accountId, transactionCount: transformedTransactions.length });
       await importToActualBudget(transformedTransactions, config, accountId);
       results.actualBudget = { success: true, count: transformedTransactions.length };
+      log.info('actual_budget_done', { count: transformedTransactions.length });
     } catch (error) {
       results.actualBudget = { success: false, error: error.message };
       log.error('actual_budget_import_failed', { error: error.message, stack: error.stack });
     }
+  } else {
+    log.debug('actual_budget_skipped', { reason: 'not configured' });
   }
 
   // --- Firefly III import ---
   if (fireflyConfigured) {
+    log.info('firefly_start', { transactionCount: transactions.length });
     try {
       const { importToFirefly } = require('./fireflyAPI');
       // Resolve Firefly account ID: map lookup (using account key e.g. "tarun_paytm") → fallback to single ID
@@ -175,13 +189,17 @@ async function main(accountIdOverride, accountKeyOverride) {
         accountKey: accountKeyOverride,
         fireflyAccountId,
         source: (config.fireflyAccountMap && accountKeyOverride) ? 'map' : 'env',
+        mapKeys: config.fireflyAccountMap ? Object.keys(config.fireflyAccountMap) : null,
       });
       const summary = await importToFirefly(transactions, config, fireflyAccountId);
       results.firefly = { success: true, ...summary };
+      log.info('firefly_done', summary);
     } catch (error) {
       results.firefly = { success: false, error: error.message };
       log.error('firefly_import_failed', { error: error.message, stack: error.stack });
     }
+  } else {
+    log.debug('firefly_skipped', { reason: 'not configured', fireflyURL: config.fireflyURL, hasToken: !!config.fireflyToken });
   }
 
   // Fail only if ALL enabled destinations failed

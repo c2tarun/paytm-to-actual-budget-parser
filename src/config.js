@@ -32,7 +32,10 @@ module.exports = {
   s3ProcessedPrefix: process.env.S3_PROCESSED_PREFIX || 'processed/',
 
   // Polling configuration
-  pollIntervalMs: parseInt(process.env.POLL_INTERVAL_MS || '300000', 10),
+  pollIntervalMs: parseInt(process.env.POLL_INTERVAL_MS || '10800000', 10),
+
+  // HTTP server (manual sync trigger + health check)
+  httpPort: parseInt(process.env.HTTP_PORT || '8081', 10),
 
   // Category defaults
   defaultCategoryGroup: process.env.DEFAULT_CATEGORY_GROUP || 'Usual Expenses',

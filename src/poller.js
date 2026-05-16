@@ -7,16 +7,20 @@ const config = require('./config');
 const log = require('./logger');
 const { createS3Client, listIncomingFiles, downloadFile, moveToProcessed } = require('./s3Poller');
 const { main } = require('./index');
+const { startHttpServer } = require('./httpServer');
 
-let shuttingDown = false;
-let pollInProgress = false;
+const controller = {
+  shuttingDown: false,
+  pollInProgress: false,
+  rerunRequested: false,
+};
 
 /**
  * Runs a single poll cycle: list S3 files, download, process, move to processed
  */
 async function pollCycle(s3Client) {
-  if (shuttingDown) return;
-  pollInProgress = true;
+  if (controller.shuttingDown) return;
+  controller.pollInProgress = true;
 
   try {
     log.info('poll_cycle_start', { bucket: config.s3BucketName, prefix: config.s3IncomingPrefix });
@@ -36,7 +40,7 @@ async function pollCycle(s3Client) {
 
     // Process files sequentially (Actual Budget API can't handle concurrent access)
     for (const key of keys) {
-      if (shuttingDown) {
+      if (controller.shuttingDown) {
         log.warn('shutdown_requested_mid_cycle', { remaining: keys.indexOf(key) });
         break;
       }
@@ -86,8 +90,28 @@ async function pollCycle(s3Client) {
   } catch (error) {
     log.error('poll_cycle_error', { error: error.message, stack: error.stack });
   } finally {
-    pollInProgress = false;
+    controller.pollInProgress = false;
   }
+}
+
+/**
+ * Wraps pollCycle with concurrency control. If a cycle is already running,
+ * a rerun is queued and will execute once the current cycle ends. Overlapping
+ * triggers collapse into a single rerun.
+ */
+async function runCycleSafely(s3Client) {
+  if (controller.shuttingDown) return;
+
+  if (controller.pollInProgress) {
+    controller.rerunRequested = true;
+    log.info('poll_cycle_queued');
+    return;
+  }
+
+  do {
+    controller.rerunRequested = false;
+    await pollCycle(s3Client);
+  } while (controller.rerunRequested && !controller.shuttingDown);
 }
 
 /**
@@ -130,21 +154,32 @@ async function start() {
   });
 
   // Run first cycle immediately
-  await pollCycle(s3Client);
+  await runCycleSafely(s3Client);
 
   // Schedule subsequent cycles
-  const intervalId = setInterval(() => pollCycle(s3Client), intervalMs);
+  const intervalId = setInterval(() => runCycleSafely(s3Client), intervalMs);
+
+  // Start HTTP server for manual /sync trigger + /health
+  const httpServer = startHttpServer({
+    port: config.httpPort,
+    controller,
+    triggerSync: () => runCycleSafely(s3Client),
+  });
 
   // Graceful shutdown
   const shutdown = async (signal) => {
     log.info('shutdown_signal', { signal });
-    shuttingDown = true;
+    controller.shuttingDown = true;
     clearInterval(intervalId);
 
+    if (httpServer && typeof httpServer.close === 'function') {
+      httpServer.close();
+    }
+
     // Wait for in-progress cycle to finish
-    if (pollInProgress) {
+    if (controller.pollInProgress) {
       log.info('waiting_for_cycle');
-      while (pollInProgress) {
+      while (controller.pollInProgress) {
         await new Promise(resolve => setTimeout(resolve, 500));
       }
     }

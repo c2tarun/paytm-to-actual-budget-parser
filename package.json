@@ -14,10 +14,12 @@
   "type": "commonjs",
   "dependencies": {
     "@actual-app/api": "^26.3.0",
+    "@aws-sdk/client-s3": "^3.700.0",
+    "@hono/node-server": "^2.0.2",
     "csv-parse": "^6.1.0",
     "csv-stringify": "^6.6.0",
     "dotenv": "^17.3.1",
-    "@aws-sdk/client-s3": "^3.700.0",
+    "hono": "^4.12.18",
     "xlsx": "^0.18.5"
   }
 }

@@ -11,8 +11,11 @@ services:
       - S3_BUCKET_NAME=${S3_BUCKET_NAME}
       - AWS_REGION=${AWS_REGION:-ap-south-1}
       - AWS_PROFILE=expense
-      - POLL_INTERVAL_MS=${POLL_INTERVAL_MS:-300000}
+      - POLL_INTERVAL_MS=${POLL_INTERVAL_MS:-10800000}
+      - HTTP_PORT=${HTTP_PORT:-8081}
       - DEFAULT_CATEGORY_GROUP=${DEFAULT_CATEGORY_GROUP:-Usual Expenses}
+    ports:
+      - "${HTTP_PORT:-8081}:${HTTP_PORT:-8081}"
     volumes:
       - ~/.aws:/root/.aws:ro
     networks:
